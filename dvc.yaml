@@ -1,0 +1,57 @@
+stages:
+  data_ingestion:
+    cmd: python src/data/data_ingestion.py
+    deps:
+    - src/data/data_ingestion.py
+    params:
+    - data_ingestion.test_size
+    outs:
+    - Data/raw
+
+  
+  data_preprocessing:
+    cmd: python src/data/data_preprocessing.py
+    deps:
+    - Data/raw/train.csv
+    - Data/raw/test.csv
+    - src/data/data_preprocessing.py
+    outs:
+    - Data/interim
+
+
+  
+  model_building:
+    cmd: python src/model/model_building.py
+    deps:
+    - Data/interim/train_processed.csv
+    - src/model/model_building.py
+    params:
+    - model_building.max_features
+    - model_building.ngram_range
+    - model_building.learning_rate
+    - model_building.max_depth
+    - model_building.n_estimators
+    outs:
+    - lgbm_model.pkl
+    - tfidf_vectorizer.pkl
+
+
+  
+  model_evaluation:
+    cmd: python src/model/model_evaluation.py
+    deps:
+    - lgbm_model.pkl
+    - tfidf_vectorizer.pkl
+    - Data/interim/train_processed.csv
+    - Data/interim/test_processed.csv
+    - src/model/model_evaluation.py
+    outs:
+    - experiment_info.json
+
+
+  
+  model_registration:
+    cmd: python src/model/model_registry.py
+    deps:
+    - experiment_info.json
+    - src/model/model_registry.py

@@ -1,0 +1,85 @@
+# Python cache
+__pycache__/
+*.py[codz]
+*$py.class
+*.so
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Jupyter notebooks
+Notebook/
+*.ipynb
+.ipynb_checkpoints/
+
+# Git
+.git/
+
+# Logs
+*.log
+logs/
+errors.log
+model_building_errors.log
+model_evaluation_errors.log
+model_registration_errors.log
+preprocessing_errors.log
+
+# Build artifacts
+catboost_info/
+mlruns/
+artifacts/
+build/
+dist/
+*.egg-info/
+
+# Chrome extension
+yt-chrome-plug*/
+
+# Docker
+Dockerfile
+.dockerignore
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# uv/pip
+uv.lock
+.ruff_cache/
+
+# Testing
+.tox/
+.nox/
+.coverage
+.pytest_cache/
+htmlcov/
+
+# Docs
+README.md
+LICENSE
+
+# CI/CD
+.github/
+
+# Temp
+tempCodeRunnerFile.py
+
+
+
+
+
+
+
+
+
+
+# Add patterns of files dvc should ignore, which could improve
+# the performance. Learn more at
+# https://dvc.org/doc/user-guide/dvcignore
