@@ -3,7 +3,7 @@ name = "mlops-youtube-sentiment-insights"
 version = "0.1.0"
 description = "MLOps pipeline for YouTube Sentiment Analysis"
 readme = "README.md"
-requires-python = ">=3.14"
+requires-python = ">=3.10" 
 authors = [{name = "Yoosuf", email = "yoosuf.ahamed10@gmail.com"}]
 dependencies = [
     "awscli>=1.45.32",
