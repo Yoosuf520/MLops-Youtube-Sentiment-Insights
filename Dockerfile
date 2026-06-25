@@ -1,5 +1,5 @@
 # base image
-FROM python:3.10-slim-bookworm
+FROM python:3.11-slim-bookworm
 
 # install uv
 RUN pip install uv
