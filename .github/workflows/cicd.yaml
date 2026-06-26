@@ -87,7 +87,7 @@ jobs:
          
       - name: Stop and remove container if running
         run: |
-          docker ps -q --filter "name=yt-sentiment-app" | grep -q . && docker stop yt-sentiment-app && docker rm -fv yt-sentiment-app || true
+          docker rm -f yt-sentiment-app || true
        
       - name: Run Docker Image to serve users
         env:
