@@ -289,5 +289,4 @@ def generate_trend_graph(request: List[SentimentDataItem]): # <-- Changed here
 
 if __name__ == '__main__':
     import uvicorn
-    # Change port from 5000 to 8000
-    uvicorn.run(app, host='0.0.0.0', port=8000)
+    uvicorn.run(app, host='0.0.0.0', port=5000) # Change from 8000 to 5000
