@@ -1,24 +1,25 @@
 import matplotlib
 matplotlib.use('Agg')
 
+import os  # 🌟 Added for dynamic environment tracking variables
+import io
+import re
+import pickle
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
+from typing import List, Optional
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from typing import List, Optional
-import io
-import matplotlib.pyplot as plt
 from wordcloud import WordCloud
 import mlflow
 import mlflow.pyfunc
-import numpy as np
-import re
-import pandas as pd
 from nltk.corpus import stopwords
 from nltk.stem import WordNetLemmatizer
 from mlflow.tracking import MlflowClient
-import matplotlib.dates as mdates
-import pickle
 
 app = FastAPI()
 
@@ -77,8 +78,11 @@ def preprocess_comment(comment: str) -> str:
 # ─── Load Model and Vectorizer ────────────────────────────────────────────────
 
 def load_model_and_vectorizer(model_name: str, model_version: str, vectorizer_path: str):
-    """Load the model from MLflow registry and vectorizer from local storage."""
-    mlflow.set_tracking_uri("http://ec2-43-205-213-111.ap-south-1.compute.amazonaws.com:5000")
+    """Load the model dynamically using the environment variables."""
+    # 🌟 CRITICAL FIX: Read tracking URI from container context safely
+    tracking_uri = os.getenv("MLFLOW_TRACKING_URI", "http://13.126.127.213:5000")
+    mlflow.set_tracking_uri(tracking_uri)
+    
     model_uri = f"models:/{model_name}/{model_version}"
     model = mlflow.pyfunc.load_model(model_uri)
     with open(vectorizer_path, 'rb') as file:
@@ -101,7 +105,7 @@ def transform_to_dataframe(comments: List[str]) -> pd.DataFrame:
     transformed = vectorizer.transform(comments)
     return pd.DataFrame(
         transformed.toarray(),
-        columns=vectorizer.get_feature_names_out()  # ← critical fix
+        columns=vectorizer.get_feature_names_out()
     )
 
 # ─── Routes ───────────────────────────────────────────────────────────────────
@@ -212,11 +216,10 @@ def generate_wordcloud(request: GenerateWordCloudRequest):
 
 
 @app.post("/generate_trend_graph")
-def generate_trend_graph(request: List[SentimentDataItem]): # <-- Changed here
+def generate_trend_graph(request: List[SentimentDataItem]):
     if not request:
         raise HTTPException(status_code=400, detail="No sentiment data provided")
     try:
-        # Load data safely from the raw list
         data_list = []
         for item in request:
             if hasattr(item, "model_dump"):
@@ -228,24 +231,19 @@ def generate_trend_graph(request: List[SentimentDataItem]): # <-- Changed here
         df['timestamp'] = pd.to_datetime(df['timestamp'])
         df.set_index('timestamp', inplace=True)
         
-        # 2. Convert to string and clean up trailing floats (e.g., '1.0' -> '1')
         df['sentiment'] = df['sentiment'].astype(str).str.replace(r'\.0$', '', regex=True)
 
-        # 3. Resample and calculate percentages
         monthly_counts = df.resample('ME')['sentiment'].value_counts().unstack(fill_value=0)
         monthly_totals = monthly_counts.sum(axis=1)
         monthly_percentages = (monthly_counts.T / monthly_totals).T * 100
 
-        # 4. Use string keys strictly to guarantee all 3 columns exist
         target_cols = ['-1', '0', '1']
         for col in target_cols:
             if col not in monthly_percentages.columns:
                 monthly_percentages[col] = 0.0
 
-        # Secure clean column alignment
         monthly_percentages = monthly_percentages[target_cols]
 
-        # 5. Build the Plot
         sentiment_labels = {'-1': 'Negative', '0': 'Neutral', '1': 'Positive'}
         colors = {'-1': 'red', '0': 'gray', '1': 'green'}
 
@@ -263,7 +261,7 @@ def generate_trend_graph(request: List[SentimentDataItem]): # <-- Changed here
         plt.title('Monthly Sentiment Percentage Over Time')
         plt.xlabel('Month')
         plt.ylabel('Percentage of Comments (%)')
-        plt.ylim(-5, 105) # Force axis range boundaries cleanly
+        plt.ylim(-5, 105)
         plt.grid(True)
         plt.xticks(rotation=45)
         
@@ -273,7 +271,6 @@ def generate_trend_graph(request: List[SentimentDataItem]): # <-- Changed here
         plt.legend()
         plt.tight_layout()
 
-        # 6. Save image to stream channel
         img_io = io.BytesIO()
         plt.savefig(img_io, format='PNG')
         img_io.seek(0)
@@ -282,11 +279,12 @@ def generate_trend_graph(request: List[SentimentDataItem]): # <-- Changed here
         return StreamingResponse(img_io, media_type="image/png")
         
     except Exception as e:
-        plt.close() # Clean up graph canvas state memory on failure to avoid leaks
+        plt.close()
         raise HTTPException(status_code=500, detail=f"Trend graph generation failed: {str(e)}")
 
 # ─── Run ──────────────────────────────────────────────────────────────────────
 
 if __name__ == '__main__':
     import uvicorn
-    uvicorn.run(app, host='0.0.0.0', port=5000) # Change from 8000 to 5000
+    # 🌟 CRITICAL FIX: Explicitly serve directly onto container port 5000
+    uvicorn.run(app, host='0.0.0.0', port=5000)
