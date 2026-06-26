@@ -1,7 +1,7 @@
 import matplotlib
 matplotlib.use('Agg')
 
-import os  # 🌟 Added for dynamic environment tracking variables
+import os
 import io
 import re
 import pickle
@@ -23,7 +23,6 @@ from mlflow.tracking import MlflowClient
 
 app = FastAPI()
 
-# Enable CORS for all routes
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -32,7 +31,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ─── Pydantic Models ──────────────────────────────────────────────────────────
+# --- Pydantic Models ---
 
 class Comment(BaseModel):
     text: str
@@ -57,7 +56,7 @@ class SentimentDataItem(BaseModel):
 class GenerateTrendRequest(BaseModel):
     sentiment_data: List[SentimentDataItem]
 
-# ─── Preprocessing ────────────────────────────────────────────────────────────
+# --- Preprocessing ---
 
 def preprocess_comment(comment: str) -> str:
     """Apply preprocessing transformations to a comment."""
@@ -75,40 +74,40 @@ def preprocess_comment(comment: str) -> str:
         print(f"Error in preprocessing comment: {e}")
         return comment
 
-# ─── Load Model and Vectorizer ────────────────────────────────────────────────
+# --- Load Model and Vectorizer ---
 
 def load_model_and_vectorizer(model_name: str, model_version: str, vectorizer_path: str):
-    """Load the model dynamically using the environment variables."""
-    # 🌟 CRITICAL FIX: Read tracking URI from container context safely
-    tracking_uri = os.getenv("MLFLOW_TRACKING_URI", "http://13.126.127.213:5000")
-    mlflow.set_tracking_uri(tracking_uri)
-    
-    model_uri = f"models:/{model_name}/{model_version}"
-    model = mlflow.pyfunc.load_model(model_uri)
+    """Load the model directly from local storage to bypass network port collisions."""
+    try:
+        model_uri = "./model" 
+        print(f"Loading MLmodel directly from local path: {model_uri}")
+        model = mlflow.pyfunc.load_model(model_uri)
+        
+    except Exception as e:
+        print(f"Local MLflow directory load failed: {e}. Falling back to raw pickle load.")
+        with open("./model.pkl", "rb") as file:
+            model = pickle.load(file)
+            
     with open(vectorizer_path, 'rb') as file:
         vectorizer = pickle.load(file)
+        
     return model, vectorizer
 
-# Initialize model and vectorizer on startup
 model, vectorizer = load_model_and_vectorizer(
     "yt_chrome_plugin_model", "1", "./tfidf_vectorizer.pkl"
 )
 
-# ─── Helper function — transform comments to DataFrame ───────────────────────
+# --- Helper function ---
 
 def transform_to_dataframe(comments: List[str]) -> pd.DataFrame:
-    """
-    Transforms preprocessed comments to a DataFrame
-    with correct feature names matching the trained model.
-    Fixes: 'Model is missing inputs' schema error
-    """
+    """Transforms preprocessed comments to a DataFrame matching the model schema."""
     transformed = vectorizer.transform(comments)
     return pd.DataFrame(
         transformed.toarray(),
         columns=vectorizer.get_feature_names_out()
     )
 
-# ─── Routes ───────────────────────────────────────────────────────────────────
+# --- Routes ---
 
 @app.get("/")
 def home():
@@ -282,9 +281,6 @@ def generate_trend_graph(request: List[SentimentDataItem]):
         plt.close()
         raise HTTPException(status_code=500, detail=f"Trend graph generation failed: {str(e)}")
 
-# ─── Run ──────────────────────────────────────────────────────────────────────
-
 if __name__ == '__main__':
     import uvicorn
-    # 🌟 CRITICAL FIX: Explicitly serve directly onto container port 5000
     uvicorn.run(app, host='0.0.0.0', port=5000)
