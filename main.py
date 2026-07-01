@@ -3,15 +3,27 @@ matplotlib.use('Agg')
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-
 from fastapi.responses import StreamingResponse
 import io
+import os
 import matplotlib.pyplot as plt
 from wordcloud import WordCloud
 import mlflow
 import numpy as np
 import re
 import pandas as pd
+
+# ── FIX 1: Explicitly download required container dependencies ──
+import nltk
+try:
+    nltk.data.find('corpora/stopwords')
+except LookupError:
+    nltk.download('stopwords')
+try:
+    nltk.data.find('corpora/wordnet')
+except LookupError:
+    nltk.download('wordnet')
+
 from nltk.corpus import stopwords
 from nltk.stem import WordNetLemmatizer
 from mlflow.tracking import MlflowClient
@@ -23,7 +35,7 @@ import uvicorn
 
 app = FastAPI()
 
-# Enable CORS
+# Enable CORS for Chrome Extension matching
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -55,7 +67,7 @@ class SentimentDataRequest(BaseModel):
 # ── Preprocessing ──
 def preprocess_comment(comment):
     try:
-        comment = comment.lower()
+        comment = str(comment).lower()
         comment = comment.strip()
         comment = re.sub(r'\n', ' ', comment)
         comment = re.sub(r'[^A-Za-z0-9\s!?.,]', '', comment)
@@ -70,8 +82,9 @@ def preprocess_comment(comment):
 
 # ── Load Model ──
 def load_model_and_vectorizer(model_name, model_version, vectorizer_path):
-    # This tells the container to step out to the EC2 host gateway on port 5000
-    mlflow.set_tracking_uri("http://3.110.185.110:5000")
+    # ── FIX 2: Dynamic Cloud Configuration ──
+    tracking_uri = os.getenv("MLFLOW_TRACKING_URI", "http://3.110.185.110:5000")
+    mlflow.set_tracking_uri(tracking_uri)
     
     client = MlflowClient()
     model_uri = f"models:/{model_name}/{model_version}"
@@ -84,7 +97,6 @@ model, vectorizer = load_model_and_vectorizer(
     "youtube_chrome_plugin_model", "1", "./tfidf_vectorizer.pkl"
 )
 
-# Extract vocabulary column headers once to save computation time
 feature_names = vectorizer.get_feature_names_out()
 
 # ── Routes ──
@@ -100,10 +112,7 @@ def predict(request: PredictRequest):
         preprocessed = [preprocess_comment(c) for c in request.comments]
         transformed = vectorizer.transform(preprocessed)
         dense = transformed.toarray()
-        
-        # ── FIX: Convert raw matrix into DataFrame with exact vocabulary feature names ──
         input_df = pd.DataFrame(dense, columns=feature_names)
-        
         predictions = model.predict(input_df).tolist()
         return [{"comment": c, "sentiment": s} for c, s in zip(request.comments, predictions)]
     except Exception as e:
@@ -119,10 +128,7 @@ def predict_with_timestamps(request: PredictWithTimestampRequest):
         preprocessed = [preprocess_comment(c) for c in comments]
         transformed = vectorizer.transform(preprocessed)
         dense = transformed.toarray()
-        
-        # ── FIX: Convert raw matrix into DataFrame with exact vocabulary feature names ──
         input_df = pd.DataFrame(dense, columns=feature_names)
-        
         predictions = [str(p) for p in model.predict(input_df).tolist()]
         return [{"comment": c, "sentiment": s, "timestamp": t}
                 for c, s, t in zip(comments, predictions, timestamps)]

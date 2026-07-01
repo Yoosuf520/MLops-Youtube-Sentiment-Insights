@@ -38,10 +38,7 @@ jobs:
           ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY_NAME }}
           IMAGE_TAG: latest
         run: |
-          # Build the Docker image mapping your Python 3.10 setup
           docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
-          
-          # Push the image to your ECR Registry
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
 
   continuous-deployment:
@@ -60,7 +57,6 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ secrets.AWS_REGION }}
 
-      # ── FIXED STEP: Changed from configure-aws-credentials to amazon-ecr-login ──
       - name: Login to Amazon ECR
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2  
@@ -84,9 +80,17 @@ jobs:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY_NAME }}
           IMAGE_TAG: latest
+          # Bring variables from repository secrets into step runtime space
+          AWS_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_REG: ${{ secrets.AWS_REGION }}
         run: |
+          # ── FIX: Injecting S3 Access Secrets and routing locally ──
           docker run -d \
             -p 8000:8000 \
             --name youtube-sentiment-app \
-            -e MLFLOW_TRACKING_URI="http://3.110.185.110:5000" \
+            -e AWS_ACCESS_KEY_ID="$AWS_ID" \
+            -e AWS_SECRET_ACCESS_KEY="$AWS_KEY" \
+            -e AWS_DEFAULT_REGION="$AWS_REG" \
+            -e MLFLOW_TRACKING_URI="http://3.110.185.110:5000"\
             $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG

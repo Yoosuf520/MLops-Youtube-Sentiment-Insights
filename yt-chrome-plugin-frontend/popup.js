@@ -1,10 +1,14 @@
 // popup.js
 
+// popup.js
+
 document.addEventListener("DOMContentLoaded", async () => {
   const outputDiv = document.getElementById("output");
-  const API_KEY = "AIzaSyDZ5O1Wv-0E5deA9WPJAFEZlfEkVIOUmfs";  // Replace with your actual YouTube Data API key
-  // const API_URL = 'http://my-elb-2062136355.us-east-1.elb.amazonaws.com:80';   
-  const API_URL = 'http://3.110.185.110:5000'; // Removed trailing slash to prevent double slashes in paths (if i want to run locally i should add my local post insten of EC2 uri)
+  const API_KEY = "AIzaSyDZ5O1Wv-0E5deA9WPJAFEZlfEkVIOUmfs";  // Keep restricted in GCP Console
+
+  // ── FIX: Point to your active production AWS backend container ──
+  // Note: Change to 'https://' once an SSL certificate/Load Balancer is attached to bypass Chrome Mixed Content walls
+  const API_URL = 'http://3.110.185.110:8000'; 
 
   // Get the current tab's URL
   chrome.tabs.query({ active: true, currentWindow: true }, async (tabs) => {
