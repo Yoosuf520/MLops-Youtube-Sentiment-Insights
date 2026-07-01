@@ -3,6 +3,7 @@ matplotlib.use('Agg')
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+
 from fastapi.responses import StreamingResponse
 import io
 import matplotlib.pyplot as plt
@@ -69,7 +70,7 @@ def preprocess_comment(comment):
 
 # ── Load Model ──
 def load_model_and_vectorizer(model_name, model_version, vectorizer_path):
-    mlflow.set_tracking_uri("http://3.110.185.110:5000/")
+    mlflow.set_tracking_uri("http://127.0.0.1:5000")
     client = MlflowClient()
     model_uri = f"models:/{model_name}/{model_version}"
     model = mlflow.pyfunc.load_model(model_uri)
