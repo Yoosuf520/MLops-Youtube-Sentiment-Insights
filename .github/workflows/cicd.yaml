@@ -47,9 +47,12 @@ jobs:
   continuous-deployment:
     name: Continuous Deployment (Deploy to EC2)
     needs: continuous-integration
-    runs-on: self-hosted  # Executes using your AWS self-hosted runner
+    runs-on: self-hosted  
     
     steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -57,9 +60,10 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ secrets.AWS_REGION }}
 
+      # ── FIXED STEP: Changed from configure-aws-credentials to amazon-ecr-login ──
       - name: Login to Amazon ECR
         id: login-ecr
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/amazon-ecr-login@v2  
 
       - name: Pull Latest Docker Image
         env:
@@ -71,7 +75,6 @@ jobs:
 
       - name: Clean Up Existing Container
         run: |
-          # Stop and remove the old app container if it's already running to clear port 8000
           docker stop youtube-sentiment-app || true
           docker rm youtube-sentiment-app || true
           docker system prune -f
@@ -82,7 +85,6 @@ jobs:
           ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY_NAME }}
           IMAGE_TAG: latest
         run: |
-          # Run the new container exposing port 8000 and matching your app file parameters
           docker run -d \
             -p 8000:8000 \
             --name youtube-sentiment-app \
