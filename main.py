@@ -56,6 +56,10 @@ class CommentPayload(BaseModel):
 # 1. ARTIFACT RESOLUTION ENGINE
 # ==========================================
 def load_model_and_vectorizer(model_uri: str):
+    """
+    Loads the PyFunc model from MLflow tracking server and dynamically
+    resolves the path to the logged scikit-learn TF-IDF vectorizer artifact.
+    """
     print(f"Connecting to MLflow Tracking Server to fetch: {model_uri} ...")
     model = mlflow.pyfunc.load_model(model_uri)
     
@@ -65,7 +69,8 @@ def load_model_and_vectorizer(model_uri: str):
         from mlflow.tracking.artifact_utils import _download_artifact_from_uri
         local_artifacts_dir = _download_artifact_from_uri(model_uri)
         
-    vectorizer_path = os.path.join(local_artifacts_dir, "tfidf_vectorizer.pkl")
+    # ─── FIXED: Added the "model" subfolder to look inside MLflow's logged artifact structure ───
+    vectorizer_path = os.path.join(local_artifacts_dir, "model", "tfidf_vectorizer.pkl")
     print(f"Loading text vectorizer binary from: {vectorizer_path}")
     
     if not os.path.exists(vectorizer_path):
@@ -231,7 +236,7 @@ def predict_sentiment(payload: CommentPayload):
 
 
 if __name__ == "__main__":
-    
+
     import uvicorn
     # This runs the FastAPI instance 'app' on port 8000 when executing 'python main.py'
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=False)
