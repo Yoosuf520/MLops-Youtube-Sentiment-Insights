@@ -11,7 +11,8 @@
     "activeTab",
     "scripting",
     "http://localhost/*",
-    "http://3.110.185.110/*", 
+    "http://3.110.185.110:8000/*", 
     "https://www.googleapis.com/*"
   ]
+
 }
