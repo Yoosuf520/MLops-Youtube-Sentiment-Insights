@@ -13,7 +13,7 @@
   ],
   "host_permissions": [
     "http://localhost/*",
-    "http://3.110.185.110:8000/*", 
+    "http://3.110.185.110:5000/*", 
     "https://www.googleapis.com/*"
   ]
 }
