@@ -61,7 +61,7 @@ jobs:
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2  
 
-      - name: Pull Latest Docker Image
+      - name: Force Pull Latest Image
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY_NAME }}
@@ -74,6 +74,8 @@ jobs:
           docker stop youtube-sentiment-app || true
           docker rm youtube-sentiment-app || true
           docker system prune -f
+
+   
 
       - name: Run New Container
         env:
