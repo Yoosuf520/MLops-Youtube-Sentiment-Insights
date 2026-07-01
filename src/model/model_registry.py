@@ -88,7 +88,7 @@ def main():
 
         model_name = "yt_chrome_plugin_model"
         version = register_model(model_name, model_info)
-        print(f"✅ Model '{model_name}' version {version} registered with alias 'staging'")
+        print(f"Model '{model_name}' version {version} registered with alias 'staging'")
 
     except Exception as e:
         logger.error('Failed to complete the model registration process: %s', e)

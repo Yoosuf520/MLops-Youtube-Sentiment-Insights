@@ -1,18 +1,17 @@
-awscli>=1.45.32
-boto3>=1.43.32
-imblearn>=0.0
-ipykernel>=7.3.0
-lightgbm>=4.6.0
-matplotlib==3.11.0
-mlflow>=3.14.0
-nltk>=3.9.4
-numpy>=2.4.6
-optuna>=4.9.0
-pandas>=2.3.3
-scikit-learn>=1.9.0
-scipy>=1.17.1
-seaborn>=0.13.2
-setuptools>=70.0.0
-wordcloud>=1.9.6
-xgboost>=3.3.0
--e .             
+boto3==1.35.36
+fastapi
+joblib==1.4.2
+lightgbm==4.5.0
+matplotlib==3.9.2
+mlflow==2.17.0
+dvc==3.53.0
+dvc[s3]
+nltk==3.9.1
+numpy==2.1.2
+pandas==2.2.3
+wordcloud==1.9.3
+seaborn==0.13.2
+scikit-learn==1.5.2
+setuptools
+uvicorn
+-e .

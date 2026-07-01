@@ -1,85 +1,53 @@
-# Python cache
-__pycache__/
-*.py[codz]
-*$py.class
-*.so
+# Python
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info
+dist
+build
 
 # Virtual environments
-.venv/
 venv/
+.venv/
 env/
-ENV/
+.env
 
-# Jupyter notebooks
-Notebook/
-*.ipynb
-.ipynb_checkpoints/
+# Jupyter notebooks checkpoints
+.ipynb_checkpoints
 
-# Git
-.git/
+# MLflow
+mlruns/
+mlflow.db
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+
+# OS files
+.DS_Store
+Thumbs.db
 
 # Logs
 *.log
 logs/
-errors.log
-model_building_errors.log
-model_evaluation_errors.log
-model_registration_errors.log
-preprocessing_errors.log
 
-# Build artifacts
-catboost_info/
-mlruns/
-artifacts/
-build/
-dist/
-*.egg-info/
+# Test files
+tests/
+pytest_cache/
 
-# Chrome extension
-yt-chrome-plug*/
+# Large data files already tracked by DVC
+*.csv
+*.json
+# *.pkl
+# *.pickle
+*.parquet
 
-# Docker
-Dockerfile
-.dockerignore
+# Node modules (if any)
+node_modules/
 
-# IDE
-.vscode/
-.idea/
-
-# OS
-.DS_Store
-Thumbs.db
-
-# uv/pip
-uv.lock
-.ruff_cache/
-
-# Testing
-.tox/
-.nox/
-.coverage
-.pytest_cache/
-htmlcov/
-
-# Docs
-README.md
-LICENSE
-
-# CI/CD
-.github/
-
-# Temp
-tempCodeRunnerFile.py
-
-
-
-
-
-
-
-
-
-
-# Add patterns of files dvc should ignore, which could improve
-# the performance. Learn more at
-# https://dvc.org/doc/user-guide/dvcignore
+# Temporary files
+tmp/
+temp/
