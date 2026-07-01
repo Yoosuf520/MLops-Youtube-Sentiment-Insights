@@ -1,0 +1,90 @@
+name: MLOps YouTube Sentiment Insights CI/CD
+
+on:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - 'README.md'
+      - '.gitignore'
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  continuous-integration:
+    name: Continuous Integration (Build & Push)
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build, Tag, and Push Docker Image to Amazon ECR
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY_NAME }}
+          IMAGE_TAG: latest
+        run: |
+          # Build the Docker image mapping your Python 3.10 setup
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+          
+          # Push the image to your ECR Registry
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+
+  continuous-deployment:
+    name: Continuous Deployment (Deploy to EC2)
+    needs: continuous-integration
+    runs-on: self-hosted  # Executes using your AWS self-hosted runner
+    
+    steps:
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/configure-aws-credentials@v4
+
+      - name: Pull Latest Docker Image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY_NAME }}
+          IMAGE_TAG: latest
+        run: |
+          docker pull $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+
+      - name: Clean Up Existing Container
+        run: |
+          # Stop and remove the old app container if it's already running to clear port 8000
+          docker stop youtube-sentiment-app || true
+          docker rm youtube-sentiment-app || true
+          docker system prune -f
+
+      - name: Run New Container
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY_NAME }}
+          IMAGE_TAG: latest
+        run: |
+          # Run the new container exposing port 8000 and matching your app file parameters
+          docker run -d \
+            -p 8000:8000 \
+            --name youtube-sentiment-app \
+            -e MLFLOW_TRACKING_URI="http://3.110.185.110:5000" \
+            $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
