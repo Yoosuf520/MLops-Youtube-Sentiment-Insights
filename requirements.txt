@@ -14,4 +14,4 @@ seaborn==0.13.2
 scikit-learn==1.5.2
 setuptools
 uvicorn
--e .
+#-e .
