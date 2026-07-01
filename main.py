@@ -13,211 +13,225 @@ import numpy as np
 import re
 import pandas as pd
 
-# ── FIX 1: Explicitly download required container dependencies ──
-import nltk
-try:
-    nltk.data.find('corpora/stopwords')
-except LookupError:
-    nltk.download('stopwords')
-try:
-    nltk.data.find('corpora/wordnet')
-except LookupError:
-    nltk.download('wordnet')
-
-from nltk.corpus import stopwords
-from nltk.stem import WordNetLemmatizer
-from mlflow.tracking import MlflowClient
-import matplotlib.dates as mdates
+import os
 import pickle
+import sys
+import nltk
+import mlflow
+import base64
+import io
+import re
+from datetime import datetime
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-from typing import List, Optional
-import uvicorn
+from typing import List, Dict, Any
 
-app = FastAPI()
+# For visual chart generation
+import matplotlib
+matplotlib.use('Agg')  # Prevents GUI rendering issues inside the Docker container
+import matplotlib.pyplot as plt
+from wordcloud import WordCloud
 
-# Enable CORS for Chrome Extension matching
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+# Ensure NLTK data path points to where it is pre-downloaded in the Docker layer
+nltk.data.path.append('/usr/local/share/nltk_data')
+from nltk.corpus import stopwords
+
+# Initialize FastAPI App
+app = FastAPI(
+    title="YouTube Sentiment Insights API",
+    description="Production API serving LightGBM predictions and visual analytics for Chrome Extension",
+    version="1.0.0"
 )
 
-# ── Pydantic Models ──
-class Comment(BaseModel):
+# Raw comment object schema
+class CommentItem(BaseModel):
     text: str
-    timestamp: Optional[str] = None
+    published_at: str  # ISO timestamp from YouTube API (e.g., "2026-07-02T01:19:00Z")
 
-class PredictRequest(BaseModel):
-    comments: List[str]
+# Updated input payload schema to accept text + metadata
+class CommentPayload(BaseModel):
+    comments: List[CommentItem]
 
-class PredictWithTimestampRequest(BaseModel):
-    comments: List[Comment]
-
-class ChartRequest(BaseModel):
-    sentiment_counts: dict
-
-class WordCloudRequest(BaseModel):
-    comments: List[str]
-
-class SentimentDataRequest(BaseModel):
-    sentiment_data: List[dict]
-
-# ── Preprocessing ──
-def preprocess_comment(comment):
-    try:
-        comment = str(comment).lower()
-        comment = comment.strip()
-        comment = re.sub(r'\n', ' ', comment)
-        comment = re.sub(r'[^A-Za-z0-9\s!?.,]', '', comment)
-        stop_words = set(stopwords.words('english')) - {'not', 'but', 'however', 'no', 'yet'}
-        comment = ' '.join([word for word in comment.split() if word not in stop_words])
-        lemmatizer = WordNetLemmatizer()
-        comment = ' '.join([lemmatizer.lemmatize(word) for word in comment.split()])
-        return comment
-    except Exception as e:
-        print(f"Error in preprocessing: {e}")
-        return comment
-
-# ── Load Model ──
-def load_model_and_vectorizer(model_name, model_version, vectorizer_path):
-    # ── FIX 2: Dynamic Cloud Configuration ──
-    tracking_uri = os.getenv("MLFLOW_TRACKING_URI", "http://3.110.185.110:5000")
-    mlflow.set_tracking_uri(tracking_uri)
-    
-    client = MlflowClient()
-    model_uri = f"models:/{model_name}/{model_version}"
+# ==========================================
+# 1. ARTIFACT RESOLUTION ENGINE
+# ==========================================
+def load_model_and_vectorizer(model_uri: str):
+    print(f"Connecting to MLflow Tracking Server to fetch: {model_uri} ...")
     model = mlflow.pyfunc.load_model(model_uri)
+    
+    try:
+        local_artifacts_dir = model.metadata.get_model_info()._download_dir
+    except Exception:
+        from mlflow.tracking.artifact_utils import _download_artifact_from_uri
+        local_artifacts_dir = _download_artifact_from_uri(model_uri)
+        
+    vectorizer_path = os.path.join(local_artifacts_dir, "tfidf_vectorizer.pkl")
+    print(f"Loading text vectorizer binary from: {vectorizer_path}")
+    
+    if not os.path.exists(vectorizer_path):
+        raise FileNotFoundError(f"Could not find tfidf_vectorizer.pkl at evaluated path: {vectorizer_path}")
+        
     with open(vectorizer_path, 'rb') as file:
         vectorizer = pickle.load(file)
+        
     return model, vectorizer
 
-model, vectorizer = load_model_and_vectorizer(
-    "youtube_chrome_plugin_model", "1", "./tfidf_vectorizer.pkl"
-)
+# ==========================================
+# 2. MODEL RUNTIME INITIALIZATION
+# ==========================================
+tracking_uri = os.getenv("MLFLOW_TRACKING_URI", "http://127.0.0.1:5000")
+mlflow.set_tracking_uri(tracking_uri)
+MODEL_URI = "models:/youtube_chrome_plugin_model/1"
 
-feature_names = vectorizer.get_feature_names_out()
+try:
+    model, vectorizer = load_model_and_vectorizer(MODEL_URI)
+    print("Application successfully initialized. Model weights and features loaded perfectly.")
+except Exception as e:
+    print(f"CRITICAL FAULT: Server lifecycle terminated during initialization pipeline setup. Error: {e}")
+    sys.exit(1)
 
-# ── Routes ──
-@app.get('/')
-def home():
-    return {"message": "Welcome to our FastAPI"}
+# ==========================================
+# 3. ANALYTICS & VISUALIZATION HELPERS
+# ==========================================
+def generate_sentiment_chart(pos_count: int, neg_count: int, neu_count: int) -> str:
+    """Generates a donut chart and encodes it to a Base64 string for the Chrome extension UI."""
+    labels = ['Positive', 'Negative', 'Neutral']
+    sizes = [pos_count, neg_count, neu_count]
+    colors = ['#2ecc71', '#e74c3c', '#95a5a6']
+    
+    # Filter out categories with zero counts to keep the chart clean
+    filtered_data = [(l, s, c) for l, s, c in zip(labels, sizes, colors) if s > 0]
+    if not filtered_data:
+        return ""
+    
+    lbls, szs, cls = zip(*filtered_data)
+    
+    fig, ax = plt.subplots(figsize=(4, 4))
+    wedges, texts, autotexts = ax.pie(
+        szs, labels=lbls, autopct='%1.1f%%', startangle=90, 
+        colors=cls, wedgeprops=dict(width=0.4, edgecolor='w')
+    )
+    plt.setp(autotexts, size=10, weight="bold", color="white")
+    plt.setp(texts, size=10)
+    ax.axis('equal')  
+    
+    buf = io.BytesIO()
+    plt.savefig(buf, format='png', bbox_inches='tight', transparent=True)
+    plt.close(fig)
+    buf.seek(0)
+    return base64.b64encode(buf.getvalue()).decode('utf-8')
 
-@app.post('/predict')
-def predict(request: PredictRequest):
-    if not request.comments:
-        raise HTTPException(status_code=400, detail="No comments provided")
+def generate_wordcloud(text_corpus: str) -> str:
+    """Generates a text word cloud image string from high-frequency processed comment words."""
+    if not text_corpus.strip():
+        return ""
     try:
-        preprocessed = [preprocess_comment(c) for c in request.comments]
-        transformed = vectorizer.transform(preprocessed)
-        dense = transformed.toarray()
-        input_df = pd.DataFrame(dense, columns=feature_names)
-        predictions = model.predict(input_df).tolist()
-        return [{"comment": c, "sentiment": s} for c, s in zip(request.comments, predictions)]
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Prediction failed: {str(e)}")
+        stop_words = set(stopwords.words('english'))
+    except Exception:
+        stop_words = None
 
-@app.post('/predict_with_timestamps')
-def predict_with_timestamps(request: PredictWithTimestampRequest):
-    if not request.comments:
-        raise HTTPException(status_code=400, detail="No comments provided")
+    wordcloud = WordCloud(
+        width=400, height=200, background_color=None, mode="RGBA",
+        max_words=50, stopwords=stop_words, colormap='viridis'
+    ).generate(text_corpus)
+    
+    fig, ax = plt.subplots(figsize=(5, 2.5))
+    ax.imshow(wordcloud, interpolation=' Harlow ')
+    ax.axis('off')
+    
+    buf = io.BytesIO()
+    plt.savefig(buf, format='png', bbox_inches='tight', transparent=True)
+    plt.close(fig)
+    buf.seek(0)
+    return base64.b64encode(buf.getvalue()).decode('utf-8')
+
+def parse_timestamp(ts_str: str) -> int:
+    """Parses standard ISO strings into hour integers to model time-of-day workflow patterns."""
     try:
-        comments = [item.text for item in request.comments]
-        timestamps = [item.timestamp for item in request.comments]
-        preprocessed = [preprocess_comment(c) for c in comments]
-        transformed = vectorizer.transform(preprocessed)
-        dense = transformed.toarray()
-        input_df = pd.DataFrame(dense, columns=feature_names)
-        predictions = [str(p) for p in model.predict(input_df).tolist()]
-        return [{"comment": c, "sentiment": s, "timestamp": t}
-                for c, s, t in zip(comments, predictions, timestamps)]
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Prediction failed: {str(e)}")
+        # Matches "2026-07-02T01:19:00Z"
+        clean_ts = re.sub(r'\.\d+Z$', 'Z', ts_str)
+        dt = datetime.strptime(clean_ts, "%Y-%m-%dT%H:%M:%SZ")
+        return dt.hour
+    except Exception:
+        return 12  # Fallback to noon on structural parse error
 
-@app.post('/generate_chart')
-def generate_chart(request: ChartRequest):
+# ==========================================
+# 4. FASTAPI API ROUTING
+# ==========================================
+@app.get("/")
+def health_check():
+    return {"status": "healthy", "model_registry_target": MODEL_URI}
+
+@app.post("/predict")
+def predict_sentiment(payload: CommentPayload):
+    if not payload.comments:
+        raise HTTPException(status_code=400, detail="Comment payload array cannot be empty.")
+        
     try:
-        sizes = [
-            int(request.sentiment_counts.get('1', 0)),
-            int(request.sentiment_counts.get('0', 0)),
-            int(request.sentiment_counts.get('-1', 0))
-        ]
-        if sum(sizes) == 0:
-            raise ValueError("Sentiment counts sum to zero")
-        labels = ['Positive', 'Neutral', 'Negative']
-        colors = ['#36A2EB', '#C9CBCF', '#FF6384']
-        plt.figure(figsize=(6, 6))
-        plt.pie(sizes, labels=labels, colors=colors,
-                autopct='%1.1f%%', startangle=140,
-                textprops={'color': 'w'})
-        plt.axis('equal')
-        img_io = io.BytesIO()
-        plt.savefig(img_io, format='PNG', transparent=True)
-        img_io.seek(0)
-        plt.close()
-        return StreamingResponse(img_io, media_type="image/png")
+        raw_texts = [item.text for item in payload.comments]
+        
+        # 1. Dispatch Model Inference
+        transformed_features = vectorizer.transform(raw_texts)
+        predictions = model.predict(transformed_features)
+        
+        # 2. Track metrics and process timeline distributions
+        pos, neg, neu = 0, 0, 0
+        hourly_workload = {i: 0 for i in range(24)}  # Tracks comments grouped by hour of day
+        combined_text = ""
+        
+        results = []
+        for item, pred in zip(payload.comments, predictions):
+            sentiment_val = int(pred)
+            
+            # Count distribution labels (Assuming 1=Positive, 0=Negative, 2=Neutral. Adjust if different!)
+            if sentiment_val == 1:
+                pos += 1
+            elif sentiment_val == 0:
+                neg += 1
+            else:
+                neu += 1
+                
+            # Process timestamps for hourly activity mapping
+            hour = parse_timestamp(item.published_at)
+            hourly_workload[hour] += 1
+            
+            # Append text corpus for word cloud generation
+            combined_text += f" {item.text}"
+            
+            results.append({
+                "text": item.text,
+                "sentiment": sentiment_val,
+                "hour": hour
+            })
+            
+        # 3. Generate Visual Assets
+        chart_base64 = generate_sentiment_chart(pos, neg, neu)
+        wordcloud_base64 = generate_wordcloud(combined_text)
+        
+        # 4. Return complete packaged payload for extension UI consumption
+        return {
+            "success": True,
+            "metrics": {
+                "total_comments": len(payload.comments),
+                "positive": pos,
+                "negative": neg,
+                "neutral": neu
+            },
+            "visualizations": {
+                "sentiment_donut_chart": chart_base64,
+                "wordcloud_chart": wordcloud_base64
+            },
+            "time_distribution_workload": hourly_workload,
+            "raw_predictions": results
+        }
+        
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Chart generation failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Inference pipeline execution error: {str(e)}")
 
-@app.post('/generate_wordcloud')
-def generate_wordcloud(request: WordCloudRequest):
-    try:
-        preprocessed = [preprocess_comment(c) for c in request.comments]
-        text = ' '.join(preprocessed)
-        wordcloud = WordCloud(
-            width=800, height=400,
-            background_color='black',
-            colormap='Blues',
-            stopwords=set(stopwords.words('english')),
-            collocations=False
-        ).generate(text)
-        img_io = io.BytesIO()
-        wordcloud.to_image().save(img_io, format='PNG')
-        img_io.seek(0)
-        return StreamingResponse(img_io, media_type="image/png")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Wordcloud failed: {str(e)}")
 
-@app.post('/generate_trend_graph')
-def generate_trend_graph(request: SentimentDataRequest):
-    try:
-        df = pd.DataFrame(request.sentiment_data)
-        df['timestamp'] = pd.to_datetime(df['timestamp'])
-        df.set_index('timestamp', inplace=True)
-        df['sentiment'] = df['sentiment'].astype(int)
-        sentiment_labels = {-1: 'Negative', 0: 'Neutral', 1: 'Positive'}
-        monthly_counts = df.resample('M')['sentiment'].value_counts().unstack(fill_value=0)
-        monthly_totals = monthly_counts.sum(axis=1)
-        monthly_percentages = (monthly_counts.T / monthly_totals).T * 100
-        for s in [-1, 0, 1]:
-            if s not in monthly_percentages.columns:
-                monthly_percentages[s] = 0
-        monthly_percentages = monthly_percentages[[-1, 0, 1]]
-        plt.figure(figsize=(12, 6))
-        colors = {-1: 'red', 0: 'gray', 1: 'green'}
-        for s in [-1, 0, 1]:
-            plt.plot(monthly_percentages.index,
-                     monthly_percentages[s],
-                     marker='o', linestyle='-',
-                     label=sentiment_labels[s],
-                     color=colors[s])
-        plt.title('Monthly Sentiment Percentage Over Time')
-        plt.xlabel('Month')
-        plt.ylabel('Percentage (%)')
-        plt.grid(True)
-        plt.xticks(rotation=45)
-        plt.gca().xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m'))
-        plt.gca().xaxis.set_major_locator(mdates.AutoDateLocator(maxticks=12))
-        plt.legend()
-        plt.tight_layout()
-        img_io = io.BytesIO()
-        plt.savefig(img_io, format='PNG')
-        img_io.seek(0)
-        plt.close()
-        return StreamingResponse(img_io, media_type="image/png")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Trend graph failed: {str(e)}")
 
-if __name__ == '__main__':
-    uvicorn.run(app, host='0.0.0.0', port=8000)
+if __name__ == "__main__":
+    
+    import uvicorn
+    # This runs the FastAPI instance 'app' on port 8000 when executing 'python main.py'
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=False)
