@@ -85,10 +85,10 @@ jobs:
           AWS_REG: ${{ secrets.AWS_REGION }}
         run: |
           docker run -d \
-            -p 8000:8000 \
+            --network host \
             --name youtube-sentiment-app \
             -e AWS_ACCESS_KEY_ID="$AWS_ID" \
             -e AWS_SECRET_ACCESS_KEY="$AWS_KEY" \
             -e AWS_DEFAULT_REGION="$AWS_REG" \
-            -e MLFLOW_TRACKING_URI="http://172.17.0.1:5000" \
+            -e MLFLOW_TRACKING_URI="http://127.0.0.1:5000" \
             $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
