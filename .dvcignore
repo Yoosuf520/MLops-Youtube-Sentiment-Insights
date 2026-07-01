@@ -40,7 +40,7 @@ pytest_cache/
 
 # Large data files already tracked by DVC
 *.csv
-*.json
+# *.json
 # *.pkl
 # *.pickle
 *.parquet

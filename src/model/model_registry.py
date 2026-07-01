@@ -8,7 +8,7 @@ import os
 from mlflow.tracking import MlflowClient
 
 # Set up MLflow tracking URI — make sure this matches your EC2
-mlflow.set_tracking_uri("http://ec2-43-205-213-111.ap-south-1.compute.amazonaws.com:5000")
+mlflow.set_tracking_uri("http://3.110.185.110:5000")
 
 # logging configuration
 logger = logging.getLogger('model_registration')
@@ -86,7 +86,7 @@ def main():
         model_info = load_model_info(model_info_path)
         logger.debug('Model info: %s', model_info)
 
-        model_name = "yt_chrome_plugin_model"
+        model_name = "youtube_chrome_plugin_model"
         version = register_model(model_name, model_info)
         print(f"Model '{model_name}' version {version} registered with alias 'staging'")
 

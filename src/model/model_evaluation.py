@@ -130,7 +130,7 @@ def save_model_info(run_id: str, model_path: str, file_path: str) -> None:
 
 
 def main():
-    mlflow.set_tracking_uri("http://ec2-43-205-213-111.ap-south-1.compute.amazonaws.com:5000")
+    mlflow.set_tracking_uri("http://3.110.185.110:5000")
 
     mlflow.set_experiment('dvc-pipeline-runs')
     
@@ -163,7 +163,7 @@ def main():
             signature = infer_signature(input_example, model.predict(X_test_tfidf[:5]))  # <--- Added for signature
 
             # Log model with signature
-            # Log model with signature
+           
             if isinstance(model, LGBMClassifier):
                 mlflow.lightgbm.log_model(
                 model,
