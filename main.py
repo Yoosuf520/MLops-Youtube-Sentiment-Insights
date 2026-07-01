@@ -70,7 +70,9 @@ def preprocess_comment(comment):
 
 # ── Load Model ──
 def load_model_and_vectorizer(model_name, model_version, vectorizer_path):
-    mlflow.set_tracking_uri("http://127.0.0.1:5000")
+    # This tells the container to step out to the EC2 host gateway on port 5000
+    mlflow.set_tracking_uri("http://172.17.0.1:5000")
+    
     client = MlflowClient()
     model_uri = f"models:/{model_name}/{model_version}"
     model = mlflow.pyfunc.load_model(model_uri)
