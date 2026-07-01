@@ -80,17 +80,15 @@ jobs:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY_NAME }}
           IMAGE_TAG: latest
-          # Bring variables from repository secrets into step runtime space
           AWS_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           AWS_REG: ${{ secrets.AWS_REGION }}
         run: |
-          # ── FIX: Injecting S3 Access Secrets and routing locally ──
           docker run -d \
             -p 8000:8000 \
             --name youtube-sentiment-app \
             -e AWS_ACCESS_KEY_ID="$AWS_ID" \
             -e AWS_SECRET_ACCESS_KEY="$AWS_KEY" \
             -e AWS_DEFAULT_REGION="$AWS_REG" \
-            -e MLFLOW_TRACKING_URI="http://3.110.185.110:5000"\
+            -e MLFLOW_TRACKING_URI="http://172.17.0.1:5000" \
             $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
