@@ -1,32 +1,19 @@
-import matplotlib
-matplotlib.use('Agg')
-
-from fastapi import FastAPI, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+import os
 import io
-import os
-import matplotlib.pyplot as plt
-from wordcloud import WordCloud
-import mlflow
-import numpy as np
 import re
-import pandas as pd
-
-import os
-import pickle
 import sys
-import nltk
-import mlflow
 import base64
-import io
-import re
+import pickle
 from datetime import datetime
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
 from typing import List, Dict, Any
 
-# For visual chart generation
+import nltk
+import mlflow
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+
+# For visual chart generation configurations
 import matplotlib
 matplotlib.use('Agg')  # Prevents GUI rendering issues inside the Docker container
 import matplotlib.pyplot as plt
@@ -36,19 +23,28 @@ from wordcloud import WordCloud
 nltk.data.path.append('/usr/local/share/nltk_data')
 from nltk.corpus import stopwords
 
-# Initialize FastAPI App
+# Initialize FastAPI App instance
 app = FastAPI(
     title="YouTube Sentiment Insights API",
     description="Production API serving LightGBM predictions and visual analytics for Chrome Extension",
     version="1.0.0"
 )
 
-# Raw comment object schema
+# Enable CORS Middleware to accept connection streams from the Chrome Extension Origin
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  
+    allow_credentials=True,
+    allow_methods=["*"],  
+    allow_headers=["*"],  
+)
+
+# Raw comment inbound structural schema
 class CommentItem(BaseModel):
     text: str
-    published_at: str  # ISO timestamp from YouTube API (e.g., "2026-07-02T01:19:00Z")
+    published_at: str  # ISO timestamp string format
 
-# Updated input payload schema to accept text + metadata
+# Payload configuration input schema
 class CommentPayload(BaseModel):
     comments: List[CommentItem]
 
@@ -71,7 +67,7 @@ def load_model_and_vectorizer(model_uri: str):
         
     print(f"Artifact directory downloaded to: {local_artifacts_dir}")
     
-    # ─── FIXED: Dynamically scan the directory tree to find the file ───
+    # Dynamically scan the directory tree to look for the file wrapper
     vectorizer_path = None
     for root, dirs, files in os.walk(local_artifacts_dir):
         if "tfidf_vectorizer.pkl" in files:
@@ -79,7 +75,6 @@ def load_model_and_vectorizer(model_uri: str):
             break
             
     if not vectorizer_path:
-        # Fallback debug step: log all found files to help pinpoint if named differently
         all_files = []
         for r, d, f in os.walk(local_artifacts_dir):
             for file in f:
@@ -95,6 +90,7 @@ def load_model_and_vectorizer(model_uri: str):
         vectorizer = pickle.load(file)
         
     return model, vectorizer
+
 # ==========================================
 # 2. MODEL RUNTIME INITIALIZATION
 # ==========================================
@@ -118,7 +114,6 @@ def generate_sentiment_chart(pos_count: int, neg_count: int, neu_count: int) -> 
     sizes = [pos_count, neg_count, neu_count]
     colors = ['#2ecc71', '#e74c3c', '#95a5a6']
     
-    # Filter out categories with zero counts to keep the chart clean
     filtered_data = [(l, s, c) for l, s, c in zip(labels, sizes, colors) if s > 0]
     if not filtered_data:
         return ""
@@ -155,7 +150,8 @@ def generate_wordcloud(text_corpus: str) -> str:
     ).generate(text_corpus)
     
     fig, ax = plt.subplots(figsize=(5, 2.5))
-    ax.imshow(wordcloud, interpolation=' Harlow ')
+    # ─── FIXED: Changed interpolation scheme from 'Harlow' to standard 'bilinear' ───
+    ax.imshow(wordcloud, interpolation='bilinear')
     ax.axis('off')
     
     buf = io.BytesIO()
@@ -167,12 +163,11 @@ def generate_wordcloud(text_corpus: str) -> str:
 def parse_timestamp(ts_str: str) -> int:
     """Parses standard ISO strings into hour integers to model time-of-day workflow patterns."""
     try:
-        # Matches "2026-07-02T01:19:00Z"
         clean_ts = re.sub(r'\.\d+Z$', 'Z', ts_str)
         dt = datetime.strptime(clean_ts, "%Y-%m-%dT%H:%M:%SZ")
         return dt.hour
     except Exception:
-        return 12  # Fallback to noon on structural parse error
+        return 12
 
 # ==========================================
 # 4. FASTAPI API ROUTING
@@ -189,20 +184,19 @@ def predict_sentiment(payload: CommentPayload):
     try:
         raw_texts = [item.text for item in payload.comments]
         
-        # 1. Dispatch Model Inference
+        # 1. Dispatch Model Inference Matrix
         transformed_features = vectorizer.transform(raw_texts)
         predictions = model.predict(transformed_features)
         
         # 2. Track metrics and process timeline distributions
         pos, neg, neu = 0, 0, 0
-        hourly_workload = {i: 0 for i in range(24)}  # Tracks comments grouped by hour of day
+        hourly_workload = {i: 0 for i in range(24)}  
         combined_text = ""
         
         results = []
         for item, pred in zip(payload.comments, predictions):
             sentiment_val = int(pred)
             
-            # Count distribution labels (Assuming 1=Positive, 0=Negative, 2=Neutral. Adjust if different!)
             if sentiment_val == 1:
                 pos += 1
             elif sentiment_val == 0:
@@ -210,11 +204,8 @@ def predict_sentiment(payload: CommentPayload):
             else:
                 neu += 1
                 
-            # Process timestamps for hourly activity mapping
             hour = parse_timestamp(item.published_at)
             hourly_workload[hour] += 1
-            
-            # Append text corpus for word cloud generation
             combined_text += f" {item.text}"
             
             results.append({
@@ -223,11 +214,11 @@ def predict_sentiment(payload: CommentPayload):
                 "hour": hour
             })
             
-        # 3. Generate Visual Assets
+        # 3. Generate Visual Base64 Assets
         chart_base64 = generate_sentiment_chart(pos, neg, neu)
         wordcloud_base64 = generate_wordcloud(combined_text)
         
-        # 4. Return complete packaged payload for extension UI consumption
+        # 4. Return packaged analytics payload for UI consumption
         return {
             "success": True,
             "metrics": {
@@ -247,10 +238,9 @@ def predict_sentiment(payload: CommentPayload):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Inference pipeline execution error: {str(e)}")
 
-
-
+# ==========================================
+# 5. LOCAL RUNTIME ENTRYPOINT
+# ==========================================
 if __name__ == "__main__":
-
     import uvicorn
-    # This runs the FastAPI instance 'app' on port 8000 when executing 'python main.py'
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=False)
