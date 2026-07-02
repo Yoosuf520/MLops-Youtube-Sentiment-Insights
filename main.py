@@ -153,11 +153,22 @@ def predict_sentiment(payload: CommentPayload):
     try:
         raw_texts = [item.text for item in payload.comments]
 
+        # 1. Transform raw text comments to TF-IDF features matrix
         transformed_features = vectorizer.transform(raw_texts)
-        predictions = model.predict(transformed_features)
+        
+        # ─── FIXED: Convert sparse array to a dense DataFrame with matching schema features ───
+        if hasattr(transformed_features, "toarray"):
+            dense_matrix = transformed_features.toarray()
+        else:
+            dense_matrix = transformed_features
+            
+        feature_names = vectorizer.get_feature_names_out()
+        input_dataframe = pd.DataFrame(dense_matrix, columns=feature_names)
+        
+        # 2. Dispatch Schema-Compliant Inference
+        predictions = model.predict(input_dataframe)
 
-        # Fix: correct sentiment mapping
-        # 1 = positive, 0 = neutral, -1 = negative
+        # 3. Process metrics and timeline workload distribution arrays
         pos, neg, neu = 0, 0, 0
         hourly_workload = {i: 0 for i in range(24)}
         combined_text = ""
