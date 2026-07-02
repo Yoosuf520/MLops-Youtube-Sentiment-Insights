@@ -1,16 +1,8 @@
-// popup.js
-
-// popup.js
-
 document.addEventListener("DOMContentLoaded", async () => {
   const outputDiv = document.getElementById("output");
-  const API_KEY = "AIzaSyDZ5O1Wv-0E5deA9WPJAFEZlfEkVIOUmfs";  // Keep restricted in GCP Console
+  const API_KEY = "AIzaSyDZ5O1Wv-0E5deA9WPJAFEZlfEkVIOUmfs";
+  const API_URL = "http://3.110.185.110:8000"; // Fix: removed double semicolon and /predict suffix
 
-  // ── FIX: Point to your active production AWS backend container ──
-  // Note: Change to 'https://' once an SSL certificate/Load Balancer is attached to bypass Chrome Mixed Content walls
-  const API_URL = "http://3.110.185.110:8000/predict";; 
-
-  // Get the current tab's URL
   chrome.tabs.query({ active: true, currentWindow: true }, async (tabs) => {
     const url = tabs[0].url;
     const youtubeRegex = /^https:\/\/(?:www\.)?youtube\.com\/watch\?v=([\w-]{11})/;
@@ -27,40 +19,44 @@ document.addEventListener("DOMContentLoaded", async () => {
       }
 
       outputDiv.innerHTML += `<p>Fetched ${comments.length} comments. Performing sentiment analysis...</p>`;
-      const predictions = await getSentimentPredictions(comments);
+      const result = await getSentimentPredictions(comments);
 
-      if (predictions) {
-        // Process the predictions to get sentiment counts and sentiment data
-        const sentimentCounts = { "1": 0, "0": 0, "-1": 0 };
-        const sentimentData = []; // For trend graph
-        const totalSentimentScore = predictions.reduce((sum, item) => sum + parseInt(item.sentiment), 0);
-        
-        predictions.forEach((item) => {
-          sentimentCounts[item.sentiment]++;
-          sentimentData.push({
-            timestamp: item.timestamp,
-            sentiment: parseInt(item.sentiment)
-          });
-        });
+      if (result && result.success) {
+        const predictions = result.predictions;
+        const metrics = result.metrics;
 
-        // Compute metrics
-        const totalComments = comments.length;
-        const uniqueCommenters = new Set(comments.map(comment => comment.authorId)).size;
-        const totalWords = comments.reduce((sum, comment) => sum + comment.text.split(/\s+/).filter(word => word.length > 0).length, 0);
-        const avgWordLength = (totalWords / totalComments).toFixed(2);
-        const avgSentimentScore = (totalSentimentScore / totalComments).toFixed(2);
+        // Fix: use metrics from API response directly
+        const sentimentCounts = {
+          "1": metrics.positive,
+          "0": metrics.neutral,
+          "-1": metrics.negative
+        };
 
-        // Normalize the average sentiment score to a scale of 0 to 10
-        const normalizedSentimentScore = (((parseFloat(avgSentimentScore) + 1) / 2) * 10).toFixed(2);
+        const totalSentimentScore = predictions.reduce(
+          (sum, item) => sum + parseInt(item.sentiment), 0
+        );
+        const avgSentimentScore = (totalSentimentScore / predictions.length).toFixed(2);
+        const normalizedSentimentScore = (
+          ((parseFloat(avgSentimentScore) + 1) / 2) * 10
+        ).toFixed(2);
 
-        // Add the Comment Analysis Summary section
+        const uniqueCommenters = new Set(
+          comments.map(comment => comment.authorId)
+        ).size;
+        const totalWords = comments.reduce(
+          (sum, comment) =>
+            sum + comment.text.split(/\s+/).filter(w => w.length > 0).length,
+          0
+        );
+        const avgWordLength = (totalWords / metrics.total_comments).toFixed(2);
+
         outputDiv.innerHTML += `
           <div class="section">
             <div class="section-title">Comment Analysis Summary</div>
             <div class="metrics-container">
               <div class="metric">
                 <div class="metric-title">Total Comments</div>
-                <div class="metric-value">${totalComments}</div>
+                <div class="metric-value">${metrics.total_comments}</div>
               </div>
               <div class="metric">
                 <div class="metric-title">Unique Commenters</div>
@@ -75,41 +71,42 @@ document.addEventListener("DOMContentLoaded", async () => {
                 <div class="metric-value">${normalizedSentimentScore}/10</div>
               </div>
             </div>
-          </div>
-        `;
+          </div>`;
 
-        // Add the Sentiment Analysis Results section with a placeholder for the chart
+        // Sentiment chart from base64
+        const chartBase64 = result.visualizations.sentiment_donut_chart;
         outputDiv.innerHTML += `
           <div class="section">
             <div class="section-title">Sentiment Analysis Results</div>
-            <p>See the pie chart below for sentiment distribution.</p>
-            <div id="chart-container"><p>Loading chart...</p></div>
+            <p>Positive: ${metrics.positive} | Neutral: ${metrics.neutral} | Negative: ${metrics.negative}</p>
+            ${chartBase64
+              ? `<img src="data:image/png;base64,${chartBase64}" style="width:100%;margin-top:10px;" />`
+              : '<p>Chart not available.</p>'}
           </div>`;
 
-        // Fetch and display the pie chart inside the chart-container div
-        await fetchAndDisplayChart(sentimentCounts);
+        // Wordcloud from base64
+        const wordcloudBase64 = result.visualizations.wordcloud_chart;
+        outputDiv.innerHTML += `
+          <div class="section">
+            <div class="section-title">Comment Wordcloud</div>
+            ${wordcloudBase64
+              ? `<img src="data:image/png;base64,${wordcloudBase64}" style="width:100%;margin-top:10px;" />`
+              : '<p>Wordcloud not available.</p>'}
+          </div>`;
 
-        // Add the Sentiment Trend Graph section
+        // Trend graph
+        const sentimentData = predictions.map(item => ({
+          timestamp: item.timestamp,
+          sentiment: parseInt(item.sentiment)
+        }));
         outputDiv.innerHTML += `
           <div class="section">
             <div class="section-title">Sentiment Trend Over Time</div>
             <div id="trend-graph-container"><p>Loading trend graph...</p></div>
           </div>`;
-
-        // Fetch and display the sentiment trend graph
         await fetchAndDisplayTrendGraph(sentimentData);
 
-        // Add the Word Cloud section
-        outputDiv.innerHTML += `
-          <div class="section">
-            <div class="section-title">Comment Wordcloud</div>
-            <div id="wordcloud-container"><p>Loading wordcloud...</p></div>
-          </div>`;
-
-        // Fetch and display the word cloud inside the wordcloud-container div
-        await fetchAndDisplayWordCloud(comments.map(comment => comment.text));
-
-        // Add the top comments section
+        // Top comments
         outputDiv.innerHTML += `
           <div class="section">
             <div class="section-title">Top 25 Comments with Sentiments</div>
@@ -132,14 +129,16 @@ document.addEventListener("DOMContentLoaded", async () => {
     let pageToken = "";
     try {
       while (comments.length < 500) {
-        const response = await fetch(`https://www.googleapis.com/youtube/v3/commentThreads?part=snippet&videoId=${videoId}&maxResults=100&pageToken=${pageToken}&key=${API_KEY}`);
+        const response = await fetch(
+          `https://www.googleapis.com/youtube/v3/commentThreads?part=snippet&videoId=${videoId}&maxResults=100&pageToken=${pageToken}&key=${API_KEY}`
+        );
         const data = await response.json();
         if (data.items) {
           data.items.forEach(item => {
             const commentText = item.snippet.topLevelComment.snippet.textOriginal;
             const timestamp = item.snippet.topLevelComment.snippet.publishedAt;
             const authorId = item.snippet.topLevelComment.snippet.authorChannelId?.value || 'Unknown';
-            comments.push({ text: commentText, timestamp: timestamp, authorId: authorId });
+            comments.push({ text: commentText, timestamp, authorId });
           });
         }
         pageToken = data.nextPageToken;
@@ -154,20 +153,20 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   async function getSentimentPredictions(comments) {
     try {
-      // Strips out authorId parameter to strictly match backend model expectations
       const cleanedComments = comments.map(c => ({
         text: c.text,
-        timestamp: c.timestamp
+        published_at: c.timestamp  // Fix: match API schema field name
       }));
 
-      const response = await fetch(`${API_URL}/predict_with_timestamps`, {
+      const response = await fetch(`${API_URL}/predict`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ comments: cleanedComments })
       });
+
       const result = await response.json();
       if (response.ok) {
-        return result; 
+        return result;
       } else {
         throw new Error(result.detail || 'Error fetching predictions');
       }
@@ -175,58 +174,6 @@ document.addEventListener("DOMContentLoaded", async () => {
       console.error("Error fetching predictions:", error);
       outputDiv.innerHTML += "<p>Error fetching sentiment predictions.</p>";
       return null;
-    }
-  }
-
-  async function fetchAndDisplayChart(sentimentCounts) {
-    const chartContainer = document.getElementById('chart-container');
-    try {
-      const response = await fetch(`${API_URL}/generate_chart`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sentiment_counts: sentimentCounts })
-      });
-      if (!response.ok) {
-        throw new Error('Failed to fetch chart image');
-      }
-      const blob = await response.blob();
-      const imgURL = URL.createObjectURL(blob);
-      
-      chartContainer.innerHTML = ''; // Safely clears the loading/error message
-      const img = document.createElement('img');
-      img.src = imgURL;
-      img.style.width = '100%';
-      img.style.marginTop = '20px';
-      chartContainer.appendChild(img);
-    } catch (error) {
-      console.error("Error fetching chart image:", error);
-      chartContainer.innerHTML = "<p style='color:red;'>Error fetching chart image.</p>";
-    }
-  }
-
-  async function fetchAndDisplayWordCloud(commentTexts) {
-    const wordcloudContainer = document.getElementById('wordcloud-container');
-    try {
-      const response = await fetch(`${API_URL}/generate_wordcloud`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ comments: commentTexts }) 
-      });
-      if (!response.ok) {
-        throw new Error('Failed to fetch word cloud image');
-      }
-      const blob = await response.blob();
-      const imgURL = URL.createObjectURL(blob);
-      
-      wordcloudContainer.innerHTML = ''; 
-      const img = document.createElement('img');
-      img.src = imgURL;
-      img.style.width = '100%';
-      img.style.marginTop = '20px';
-      wordcloudContainer.appendChild(img);
-    } catch (error) {
-      console.error("Error fetching word cloud image:", error);
-      wordcloudContainer.innerHTML = "<p style='color:red;'>Error fetching word cloud image.</p>";
     }
   }
 
@@ -238,21 +185,18 @@ document.addEventListener("DOMContentLoaded", async () => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ sentiment_data: sentimentData })
       });
-      if (!response.ok) {
-        throw new Error('Failed to fetch trend graph image');
-      }
+      if (!response.ok) throw new Error('Failed to fetch trend graph');
       const blob = await response.blob();
       const imgURL = URL.createObjectURL(blob);
-      
-      trendGraphContainer.innerHTML = ''; 
+      trendGraphContainer.innerHTML = '';
       const img = document.createElement('img');
       img.src = imgURL;
       img.style.width = '100%';
       img.style.marginTop = '20px';
       trendGraphContainer.appendChild(img);
     } catch (error) {
-      console.error("Error fetching trend graph image:", error);
-      trendGraphContainer.innerHTML = "<p style='color:red;'>Error fetching trend graph image.</p>";
+      console.error("Error fetching trend graph:", error);
+      trendGraphContainer.innerHTML = "<p style='color:red;'>Error fetching trend graph.</p>";
     }
   }
 });

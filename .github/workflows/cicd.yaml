@@ -16,7 +16,7 @@ jobs:
   continuous-integration:
     name: Continuous Integration (Build & Push)
     runs-on: ubuntu-latest
-    
+
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -44,8 +44,8 @@ jobs:
   continuous-deployment:
     name: Continuous Deployment (Deploy to EC2)
     needs: continuous-integration
-    runs-on: self-hosted  
-    
+    runs-on: self-hosted
+
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -59,7 +59,7 @@ jobs:
 
       - name: Login to Amazon ECR
         id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v2  
+        uses: aws-actions/amazon-ecr-login@v2
 
       - name: Force Pull Latest Image
         env:
@@ -75,8 +75,6 @@ jobs:
           docker rm youtube-sentiment-app || true
           docker system prune -f
 
-   
-
       - name: Run New Container
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
@@ -89,8 +87,15 @@ jobs:
           docker run -d \
             --network host \
             --name youtube-sentiment-app \
+            --restart unless-stopped \
             -e AWS_ACCESS_KEY_ID="$AWS_ID" \
             -e AWS_SECRET_ACCESS_KEY="$AWS_KEY" \
             -e AWS_DEFAULT_REGION="$AWS_REG" \
             -e MLFLOW_TRACKING_URI="http://127.0.0.1:5000" \
             $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+
+      - name: Verify Container is Running
+        run: |
+          sleep 10
+          docker ps | grep youtube-sentiment-app
+          docker logs youtube-sentiment-app --tail 20
