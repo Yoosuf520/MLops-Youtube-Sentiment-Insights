@@ -58,7 +58,7 @@ class CommentPayload(BaseModel):
 def load_model_and_vectorizer(model_uri: str):
     """
     Loads the PyFunc model from MLflow tracking server and dynamically
-    resolves the path to the logged scikit-learn TF-IDF vectorizer artifact.
+    scans the downloaded artifact tree to find and load the vectorizer.
     """
     print(f"Connecting to MLflow Tracking Server to fetch: {model_uri} ...")
     model = mlflow.pyfunc.load_model(model_uri)
@@ -66,21 +66,35 @@ def load_model_and_vectorizer(model_uri: str):
     try:
         local_artifacts_dir = model.metadata.get_model_info()._download_dir
     except Exception:
-        from mlflow.tracking.artifact_utils import _download_artifact_from_uri
-        local_artifacts_dir = _download_artifact_from_uri(model_uri)
+        from mlflow.artifacts import download_artifacts
+        local_artifacts_dir = download_artifacts(artifact_uri=model_uri)
         
-    # ─── FIXED: Added the "model" subfolder to look inside MLflow's logged artifact structure ───
-    vectorizer_path = os.path.join(local_artifacts_dir, "model", "tfidf_vectorizer.pkl")
-    print(f"Loading text vectorizer binary from: {vectorizer_path}")
+    print(f"Artifact directory downloaded to: {local_artifacts_dir}")
     
-    if not os.path.exists(vectorizer_path):
-        raise FileNotFoundError(f"Could not find tfidf_vectorizer.pkl at evaluated path: {vectorizer_path}")
+    # ─── FIXED: Dynamically scan the directory tree to find the file ───
+    vectorizer_path = None
+    for root, dirs, files in os.walk(local_artifacts_dir):
+        if "tfidf_vectorizer.pkl" in files:
+            vectorizer_path = os.path.join(root, "tfidf_vectorizer.pkl")
+            break
+            
+    if not vectorizer_path:
+        # Fallback debug step: log all found files to help pinpoint if named differently
+        all_files = []
+        for r, d, f in os.walk(local_artifacts_dir):
+            for file in f:
+                all_files.append(os.path.relpath(os.path.join(r, file), local_artifacts_dir))
+        raise FileNotFoundError(
+            f"Could not find tfidf_vectorizer.pkl anywhere inside {local_artifacts_dir}. "
+            f"Available files in artifact structure: {all_files}"
+        )
         
+    print(f"Success! Found and loading text vectorizer from resolved path: {vectorizer_path}")
+    
     with open(vectorizer_path, 'rb') as file:
         vectorizer = pickle.load(file)
         
     return model, vectorizer
-
 # ==========================================
 # 2. MODEL RUNTIME INITIALIZATION
 # ==========================================
