@@ -6,7 +6,7 @@ import base64
 import pickle
 from datetime import datetime
 from typing import List
-
+import pandas as pd
 import nltk
 import mlflow
 from fastapi import FastAPI, HTTPException
