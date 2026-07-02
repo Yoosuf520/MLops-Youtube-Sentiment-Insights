@@ -8,7 +8,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   // ── FIX: Point to your active production AWS backend container ──
   // Note: Change to 'https://' once an SSL certificate/Load Balancer is attached to bypass Chrome Mixed Content walls
-  const API_URL = 'http://3.110.185.110:8000'; 
+  const API_URL = "http://3.110.185.110:8000/predict";; 
 
   // Get the current tab's URL
   chrome.tabs.query({ active: true, currentWindow: true }, async (tabs) => {
